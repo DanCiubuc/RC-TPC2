@@ -1,7 +1,8 @@
 import socket
 import random
 import pickle
-
+import sys
+import os
 
 # server reply - (status - (0,1,2), num_transfered_bytes, the actual bytes)
 
@@ -41,38 +42,54 @@ def serverReply (msg, sock, address):
 
 #---------------------------------------- CODE ----------------------------------------------#
 
+SERVER_DIR = "server"
+
 localIP     = "127.0.0.1"
-localPort   = 20001
+portSP   = 20001
 bufferSize  = 1024
+
+portSP = sys.argv[1]
 
 msgFromServer       = "Hello UDP Client"
 bytesToSend         = str.encode(msgFromServer)
 
  # Create a datagram socket
-UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-
+UDPsocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
  # Bind to address and ip
-UDPServerSocket.bind((localIP, localPort))
+UDPsocket.bind((localIP, int(portSP)))
 
 print("UDP server up and listening")
-
  # Listen for incoming datagrams
 while(True):
-
-    bytesAddressPair = UDPServerSocket.recvfrom(bufferSize)
-
-    message = bytesAddressPair[0]
-
-    address = bytesAddressPair[1]
-
-    clientMsg = "Message from Client:{}".format(message)
-    clientIP  = "Client IP Address:{}".format(address)
+    message, address = UDPsocket.recvfrom(bufferSize)
+    request=pickle.loads(message)
+    fileName = request[0]
+    offset = int(request[1])
+    noBytes = int(request[2])
     
-    print(clientMsg)
-    print(clientIP)
-
+    if not os.path.exists(SERVER_DIR):
+        os.mkdir(SERVER_DIR)
+    
+    fileName = os.path.join(SERVER_DIR, fileName)
+    
+    try:
+        file = open(fileName, "rb")
+        status = 0
+        # obviamente estes valores vão ser o dos ficheiros. fica tpc para ti :-) 
+        num_bytes_trans = 0
+        bytes_trans = [0] * noBytes
+    except Exception as e:
+        status = 1
+        num_bytes_trans = 0
+        bytes_trans = [0] * noBytes
+        
+    
+    datagram = (status, num_bytes_trans, bytes_trans)
+    res = pickle.dumps(datagram)
+    UDPsocket.sendto(res, address)
+    print(f'file={fileName}, offset={offset}, noBytes={noBytes}')
+    
+    # só para ir testando
+    break
    
 
-    # Sending a reply to client
-
-    UDPServerSocket.sendto(bytesToSend, address)
