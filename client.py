@@ -1,157 +1,103 @@
 import socket
-import random
+import select
+import sys
 import pickle
-import os
 
 
-# server reply - (status - (0,1,2), num_transfered_bytes, the actual bytes)
-
-def serializeAndSend(UDPSocket, fileName):
-    return 0
-
-# the reply can be lost
-def serverReply (msg, sock, address):
-    # msg is a byte array ready to be sent
-    # Generate random number in the range of 0 to 10
-    rand = random.randint(0, 10)
-    # If rand is less is than 3, do not respond
-    if rand >= 3:
-        return sock.sendto(msg, address)
-
-# checks if the offset is valid
-def isOffsetValid (fileName, offset, noBytes):
-    file_size = os.path.getsize(fileName)
-    # Offset cannot be negative nor bigger than the file size
-    if offset < 0 or offset >= file_size:
+# client_request = (file_name, offset_b, num_bytes_chunk_s)
+# client must be able to deal with the situation where a request is not replied
+# returns false in the case that the server doesn't respond in one second
+def waitForReply( uSocket ):
+    rx, tx, er = select.select( [uSocket], [], [], 1)
+    # waits for data or timeout after 1 second
+    if rx==[]:
         return False
-    # If the offset plus size exceeds the file size, the chunk is too large
+    else:
+        return True
 
-    # The offset is valid
-    return True
+# client must be envoked with
+#   python client.py host_of_server portSP fileName chunkSize
 
-# server is invoked with:
-#   python server.py portSP
-
-# create socket ss and bind it to portSP
+# create socket sc and bind it to some UDP port
+# open local file for writing
+# offset = 0
 # while TRUE:
-#   receive datagram with request and deserialize it using pickle.
-
-#   This is how we deserialize using pickle
-#   message, address = sock.recvfrom(1024)
-#   request=pickle.loads(message)
-#   fileName = request[0]
-#   offset = request[1]
-#   noBytes = request[2]
-#   print(f'file= {fileName},offset={offset},noBytes={noBytes}')
-
-#
-#   open file for reading
-#   if open fails reply with a datagram with status 1; the other fields must be filled
-
-#   verify if the offset is valid using os.path.filesize(…) method
-#   (had to use os.path.getsize because filesize doesn't exist!!!)
-#   if open fails reply with a datagram with status 2
-
-#   if both previous tests succeed use seek to position the file pointer
-#   in the required position and try to read S bytes from the file
-#   reply with a tuple (0, no_of_bytes_read, file_chunk)
-
-#   serialize the reply using pickle and call serverReply
+#   prepare request(fileName,offset,size) and serialize it with pickle
 
 #   This is how we serialize using pickle
 #   request = (fileName, offset, blockSize)
 #   req = pickle.dumps(request)
 #   UDPSocket.sendto(req, endpoint)
 
+#   send the request to (host_of_server, portSP)
+#   wait for reply; if reply does not arrive, repeat request
+#   write byte chunk received to file
+#   if EOF
+#       break
+#   else
+#       offset = offset + size
+
 # OPTINAL TODO: Study Performance
 
 #---------------------------------------- CODE ----------------------------------------------#
 
-SERVER_DIR = "server"
 
-localIP     = "127.0.0.1"
-localPort   = 20001
-bufferSize  = 1024
+msgFromClient       = "Hello UDP Server"
+
+bytesToSend         = str.encode(msgFromClient)
+
+serverAddressPort   = ("127.0.0.1", 20001)
+bufferSize          = 1024
 serverName = "localhost"
+clientPort = 12000
 
-UDP_RUNNING = "UDP server up and listening"
-CLOSE_SOCKET = "i want to close client socket"
-OK = "0-OK"
-FILE_NOT_FOUND = "1 - file does not exist"
-INVALID_OFFSET = "2 - invalid offset"
-READ_BINARY = "rb"
+WRITE_BINARY = "wb"
 
-msgFromServer       = "Hello UDP Client"
-bytesToSend         = str.encode(msgFromServer)
+ # Create a UDP socket at client side
+UDPClientSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+UDPClientSocket.bind(("0.0.0.0", clientPort))
 
- # Create a datagram socket
-UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+# Collect the input and put it into variables
+args = sys.argv[1:]
 
- # Bind to address and ip
-UDPServerSocket.bind((localIP, localPort))
+host_of_server = args[0]
+portSP = int(args[1])
+fileName = args[2]
+chunkSize = int(args[3])
 
-print(UDP_RUNNING)
+print(f'host_of_server= {host_of_server},portSP={portSP},fileName={fileName}, chunkSize={chunkSize}')
 
- # Listen for incoming datagrams
-while True:
-    try:
-        #   receive datagram with request and deserialize it using pickle.
-        message, address = UDPServerSocket.recvfrom(bufferSize)
+offset = 0
 
-        request=pickle.loads(message)
-        fileName = request[0]
-        offset = request[1]
-        noBytes = request[2]
-        print(f'file= {fileName},offset={offset},noBytes={noBytes}')
+with open(fileName, WRITE_BINARY) as file:
+    while True:
+        # Create request
+        request = (fileName, offset, chunkSize)
+        req = pickle.dumps(request)
+        # Send to server using created UDP socket
+        UDPClientSocket.sendto(req, (host_of_server, portSP))
 
-        try:
-            #   open file for reading
-            with open(fileName, READ_BINARY) as file:
-                # Reached the end of the file
-                if offset + noBytes >= os.path.getsize(fileName):
+        # wait for reply; if reply does not arrive, repeat request
+        if waitForReply(UDPClientSocket):
+            replyServer, address = UDPClientSocket.recvfrom(bufferSize)
 
-                    # Calculate how many bytes are left in the file from the current offset
-                    bytes_left = os.path.getsize(fileName) - offset
-                    file.seek(offset)
-                    chunkRead = file.read(bytes_left)
+            reply = pickle.loads(replyServer)
 
-                    #   reply with a tuple (0, no_of_bytes_read, file_chunk)
-                    reply = (0, len(chunkRead), chunkRead)
+            status = reply[0]
 
-                    #   serialize the reply using pickle and call serverReply
-                    replySerialized = pickle.dumps(reply)
-                    serverReply(replySerialized, UDPServerSocket, address)
+            no_of_bytes_read = reply[1]
 
-                    if not chunkRead:
-                        break
-                else:
-                    #   verify if the offset is valid using os.path.filesize(…) method
-                    if not isOffsetValid(fileName, offset, noBytes):
-                        raise ValueError(INVALID_OFFSET)
+            file_chunk = reply[2]
 
-                    #   use seek to position the file pointer
-                    #   in the required position and try to read S bytes from the file
-                    file.seek(offset)
-                    chunkRead = file.read(noBytes)
+            if status == 0:
+                file.write(file_chunk)
+                offset = offset + chunkSize
 
-                    #   reply with a tuple (0, no_of_bytes_read, file_chunk)
-                    reply = (0, len(chunkRead), chunkRead)
+            if no_of_bytes_read < chunkSize:
+                break
 
-                    #   serialize the reply using pickle and call serverReply
-                    replySerialized = pickle.dumps(reply)
-                    serverReply(replySerialized, UDPServerSocket, address)
-        #   File not found
-        except FileNotFoundError:
-            reply = (1, 0, 0)
-            replySerialized = pickle.dumps(reply)
-            serverReply(replySerialized, UDPServerSocket, address)
+            if status == 1:
+                print("File not Found")
 
-        #   Invalid Offset
-        except ValueError as e:
-            reply = (2, 0, 0)
-            replySerialized = pickle.dumps(reply)
-            serverReply(replySerialized, UDPServerSocket, address)
-    except KeyboardInterrupt:
-        print(CLOSE_SOCKET)
-        UDPServerSocket.close()
-        break
+            if status == 2:
+                print("Invalid Offset")
