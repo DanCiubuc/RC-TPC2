@@ -47,7 +47,7 @@ msgFromClient       = "Hello UDP Server"
 bytesToSend         = str.encode(msgFromClient)
 
 serverAddressPort   = ("127.0.0.1", 20001)
-bufferSize          = 1024
+bufferSize          = 32000
 serverName = "localhost"
 clientPort = 12000
 
@@ -80,9 +80,7 @@ with open(fileName, WRITE_BINARY) as file:
         # wait for reply; if reply does not arrive, repeat request
         if waitForReply(UDPClientSocket):
             replyServer, address = UDPClientSocket.recvfrom(bufferSize)
-
             reply = pickle.loads(replyServer)
-
             status = reply[0]
 
             no_of_bytes_read = reply[1]
